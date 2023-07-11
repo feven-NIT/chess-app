@@ -1,0 +1,161 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chess-namespace
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chess-front
+  namespace: chess-namespace
+  labels:
+    app: chess-front
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chess-front
+  template:
+    metadata:
+      labels:
+        app: chess-front
+    spec:
+      containers:
+        - name: chess-front
+          image: quay.io/feven/chess-front:latest
+          env: 
+            - name: AI_SERVER_HOST
+              value: "http://chess-ai-service.chess-namespace.svc.cluster.local:5555"
+          # volumeMounts:
+          #   - name: app-config
+          #     mountPath: /deployments/config
+          ports:
+            - containerPort: 8080
+#         - name: chess-ai
+#           image: quay.io/feven/chess-ai:latest
+#           ports:
+#             - containerPort: 5555
+#           securityContext:
+#             privileged: true
+#       volumes:
+#         - name: app-config
+#           configMap:
+#             name: quarkus-app-config
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chess-ai
+  namespace: chess-namespace
+  labels:
+    app: chess-ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chess-ai
+  template:
+    metadata:
+      labels:
+        app: chess-ai
+    spec:
+      serviceAccountName: chess-sa
+      containers:
+        - name: chess-ai
+          image: quay.io/feven/chess-ai:latest
+          ports:
+            - containerPort: 5555
+          securityContext:
+            privileged: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chess-front-service
+  namespace: chess-namespace
+spec:
+  selector:
+    app: chess-front
+  ports:
+  - name: chess-front
+    port: 8080
+    targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chess-ai-service
+  namespace: chess-namespace
+spec:
+  selector:
+    app: chess-ai
+  ports:
+  - name: chess-ai
+    port: 5555
+    targetPort: 5555
+  type: ClusterIP
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: chess-route
+  namespace: chess-namespace
+spec:
+  to:
+    kind: Service
+    name: chess-front-service
+    weight: 100
+  port:
+    targetPort: 8080
+  tls:
+    termination: edge
+
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chess-sa
+  namespace: chess-namespace
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: chess-clusterrole-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: chess-clusterrole
+subjects:
+- kind: ServiceAccount
+  name: chess-sa
+  namespace: chess-namespace
+---
+allowHostDirVolumePlugin: true
+allowHostIPC: true
+allowHostNetwork: true
+allowHostPID: true
+allowHostPorts: true
+allowPrivilegedContainer: true
+apiVersion: security.openshift.io/v1
+defaultAddCapabilities:
+- SYS_ADMIN
+fsGroup:
+  type: RunAsAny
+kind: SecurityContextConstraints
+metadata:
+  name: chess-scc
+  namespace: chess-namespace
+readOnlyRootFilesystem: true
+runAsUser:
+  type: RunAsAny
+seLinuxContext:
+  type: RunAsAny
+users:
+- system:serviceaccount:kepler:chess-sa
+volumes:
+- configMap
+- projected
+- emptyDir
+- hostPath
